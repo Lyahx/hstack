@@ -218,9 +218,12 @@ Resolved during the session by running them on Claude Code v2.1.274. VERIFICATIO
 
 Still open:
 
-- **The smoke test is a partial pass.** poteto-mode picked the right playbook and routed to `/pstack:how`,
-  but did not open a todo list and cited a principle without reading its leaf. The rules are correctly
-  ported and the machinery demonstrably works; the model shortcut them on a 22-line file. Re-test on real work.
+- **The todo-list requirement is unverified and cannot be verified non-interactively.** `TodoWrite` does not
+  exist in `-p` mode, which is how this port was tested, so no run could have opened a todo list. Check it
+  interactively. Everything else poteto-mode requires was observed on a real bug fix, including the
+  principle-leaf invocation that a first trivial-task run had skipped.
+- **The long-dash ban does not hold.** Ported verbatim, ignored by the model in every reply. A `Stop` hook is
+  the deterministic fix if it matters.
 - **6 of 34 skills have been executed**, plus the agent. `poteto-mode`, `how`, `interrogate`, `why`,
   `setup-pstack` and `principle-laziness-protocol` ran, which between them exercise every mechanism this
   port had to change: the config round trip, the multi-model fan-out, MCP discovery, playbook routing,

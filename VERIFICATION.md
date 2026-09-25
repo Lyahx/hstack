@@ -61,34 +61,56 @@ Observation, not a defect: `why` answered inline rather than spawning the invest
 explicitly (two-commit repo, no remote, six categories unavailable). The skill permits that but calls it rare.
 On a real repository with history, expect the fan-out.
 
-### Smoke test: partial pass
+### Smoke test, round one: trivial task, partial
 
-`/pstack:poteto-mode investigate how ratelimit.py works` against a 22-line file, read-only, tools limited to
-Read/Glob/Grep/TodoWrite/Skill.
+`/pstack:poteto-mode investigate how ratelimit.py works` against a 22-line file, read-only.
 
-What worked:
-- Matched the task to the **Investigation** playbook and read
-  `${CLAUDE_SKILL_DIR}/playbooks/investigation.md`.
-- Routed cross-skill to `Skill pstack:how` and produced that skill's exact output shape (Overview, Key
-  Concepts, How It Works, Where Things Live, Gotchas).
-- Emitted the playbook's `throughput checkpoint:` line.
-- Made no code changes, as the Investigation playbook requires.
-- Named a principle and the decision it changed ("Guard the Context Window shaped the approach. The file is
-  22 lines, so I read it directly instead of delegating").
+Worked: matched the **Investigation** playbook and read it via `${CLAUDE_SKILL_DIR}`, routed to
+`Skill pstack:how` and produced that skill's exact output shape, emitted the playbook's `throughput
+checkpoint:` line, wrote no files, and named a principle with the decision it changed.
 
-What did not:
-- **No todo list.** `TodoWrite` was allowed and never called. poteto-mode requires one for every multi-step
-  task; a one-file read-only investigation is arguably not multi-step, but the required behavior did not fire.
-- **No principle leaf was read.** It cited Guard the Context Window without invoking
-  `pstack:principle-guard-the-context-window`. This is precisely the failure poteto-mode names: "a citation
-  with no decision behind it means you skipped its leaf skill." The mechanism works (verified separately
-  above); the model did not use it on a trivial task.
-- **Two long-dash characters in the reply**, which poteto-mode bans outright.
+Did not: no principle *leaf* was invoked (it cited Guard the Context Window without reading it), and no todo
+list. Round two explains both.
 
-None of these are port defects. The rules are present and correctly ported, and the routing machinery
-demonstrably works. They are skill-adherence gaps on a task small enough that the model shortcut the process.
-**Re-test on a non-trivial task before trusting the todo-list and principle-leaf behavior**, since a 22-line
-file is the weakest possible test of a rigor skill.
+### Smoke test, round two: real multi-step work, clean pass
+
+`/pstack:poteto-mode` on a genuine two-bug defect in `session.py` (a `TypeError` on unknown tokens, and
+expired-session resurrection), with Bash/Edit/Write granted.
+
+Everything the playbook demands, verified independently rather than taken from its summary:
+
+| Required behavior | Observed |
+|---|---|
+| Match and follow the Bug fix playbook | Read `playbooks/bug-fix.md`, four times across the run |
+| Invoke a principle leaf | **`Skill pstack:principle-fix-root-causes`** in the transcript. The round-one gap was a trivial-task artifact |
+| Reproduce before fixing, with runtime evidence | Commit `f3d278d` adds a failing test; the real `TypeError` and `AssertionError` are quoted in the reply |
+| Fix the root cause, not the symptom | Extracted the expiry check into `_expired()` and reused it, so `lookup` and `refresh` cannot drift again |
+| Sequence into verifiable units | Two commits: failing test, then fix. It stashed the fix to confirm the test really failed first |
+| Name each principle and the decision it changed | Fix Root Causes, Sequence Verifiable Units, Laziness Protocol, each tied to a specific choice |
+| A skipped playbook step states why | "Opening a PR: skipped. This repo has no configured remote" |
+| Frame impact for consumer and maintainer | Closing paragraph does exactly that, for callers of `refresh()` |
+
+**I verified its claims myself** instead of trusting the report: the 3 tests pass on the fixed code, and on
+the pre-fix code they fail with 1 failure and 1 error. The regression test is genuine, not tautological.
+
+An earlier run of the same task with permissions *denied* is worth recording too. Rather than claim success,
+it wrote a "Where I fell short of the playbook" section, said "That's a real gap against
+principle-prove-it-works, and I'm not going to claim I saw it execute when I didn't", and offered the repro
+for the user to run. The honesty discipline holds under pressure.
+
+### Two real adherence gaps
+
+1. **The long-dash ban does not hold.** poteto-mode says "the long-dash character is banned outright".
+   Every reply in every run used it anyway, 5 times in the bug-fix reply alone. The rule is ported verbatim;
+   the model does not follow it. If this matters to you, a `Stop` hook that rejects the character is the
+   deterministic fix, since the docs recommend hooks where prose rules need enforcing.
+2. **The todo-list requirement is still untested, and my testing could not test it.** `TodoWrite` does not
+   exist in `-p` non-interactive mode, which is how every run above was driven. I confirmed this directly:
+   asked in `-p`, Claude replies `NO TODO TOOL AVAILABLE`. So "no todo list" in rounds one and two is a
+   harness artifact, not a skill or port defect, and it cannot be verified except **interactively**.
+   **This is the one behavior you have to check by hand:** run `/pstack:poteto-mode` on a multi-step task in
+   a normal interactive session and confirm a todo list opens whose first item is reading the principles
+   index.
 
 ## Yours to run
 
