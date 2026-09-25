@@ -106,6 +106,11 @@ and `opus, sonnet, haiku` for the review panels.
 The config lives in the plugin's persistent data directory, so a plugin update does not wipe it. Delete a key
 to go back to that skill's default; delete the file to reset everything.
 
+That directory is scoped per install. A marketplace install uses
+`~/.claude/plugins/data/pstack-pstack-local/`, while `--plugin-dir` loading uses
+`~/.claude/plugins/data/pstack-inline/`, and the two do not share a config. Re-run `/pstack:setup-pstack` if
+you switch between them.
+
 ## Differences from the Cursor version
 
 ### Multi-vendor review panels are gone. Read this one.

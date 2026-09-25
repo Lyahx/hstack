@@ -46,6 +46,21 @@ The `claude` CLI was installed mid-session (v2.1.274), so the following were exe
 | Transcript path-mangling rule (undocumented) | **CONFIRMED** on v2.1.274. Predicted `~/.claude/projects/` + path with each non-alphanumeric run replaced by `-`, and the directory existed |
 | `${CLAUDE_SKILL_DIR}` resolves at runtime | **WORKS.** Transcript shows a read of `skills/poteto-mode/playbooks/investigation.md` |
 
+### Second round: the remaining mechanisms, all run
+
+| Check | Result |
+|---|---|
+| `/pstack:setup-pstack` writes the config | **WORKS.** Wrote `~/.claude/plugins/data/pstack-pstack-local/models.json`: valid JSON, all 13 role keys present, no unexpected keys, every value a real model alias |
+| A consuming skill *reads* that config via dynamic injection | **WORKS.** Planted `how-explorer: haiku` (the skill's written default is `sonnet`); `/pstack:how` quoted the raw injected JSON and answered "I'd use `haiku`, it came from the injected Model configuration block, overriding the skill's written default of `sonnet`". The override layer works end to end |
+| `allowed-tools` grant for the injected command | **WORKS.** No permission prompt, no aborted invocation |
+| `/pstack:interrogate` multi-model fan-out | **WORKS.** Spawned three reviewers on three models with the three assigned lenses (Correctness/opus, Code quality/sonnet, Edge cases/haiku), caught both planted bugs in a test diff, produced the four-bucket lead verdict and the Agreement Map, and did not auto-apply changes |
+| Lens differentiation is real, and its limits | **Honest.** The verdict reported the opus reviewer as deepest and the haiku reviewer as "less elaboration, as expected from a lighter model", and noted no reviewer contradicted another. That is the tier-asymmetry caveat this port documents, observed in practice |
+| `/pstack:why` graceful degradation with no MCP servers | **WORKS.** Correctly read six of seven categories as unavailable *because the servers are unauthenticated*, produced a full Sources Consulted coverage map naming each skipped category with its reason, answered from git, and reported the honest null ("treat it as an unexplained default") instead of inventing a rationale |
+
+Observation, not a defect: `why` answered inline rather than spawning the investigator fan-out, justifying it
+explicitly (two-commit repo, no remote, six categories unavailable). The skill permits that but calls it rare.
+On a real repository with history, expect the fan-out.
+
 ### Smoke test: partial pass
 
 `/pstack:poteto-mode investigate how ratelimit.py works` against a 22-line file, read-only, tools limited to

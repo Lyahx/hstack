@@ -87,6 +87,13 @@ Three details that are requirements, not style:
 Trade-off versus Cursor: the config costs nothing when a skill is not running, but a skill that forgets the
 injection block silently uses its defaults.
 
+**One gotcha found by running it.** `${CLAUDE_PLUGIN_DATA}` is scoped per install, not per plugin. A
+marketplace install resolves to `~/.claude/plugins/data/pstack-pstack-local/`, while loading the same
+directory with `--plugin-dir` resolves to `~/.claude/plugins/data/pstack-inline/`. The two do not share a
+config, so a `setup-pstack` run under one is invisible to the other. If your models look unconfigured after
+you switch between a real install and `--plugin-dir` testing, that is why. Re-run `/pstack:setup-pstack`
+under the install you actually use.
+
 ### 4. Transcript mining is best-effort
 
 `automate-me`, `reflect`, `show-me-your-work` and two playbooks read the session transcript. Cursor named an
@@ -214,9 +221,12 @@ Still open:
 - **The smoke test is a partial pass.** poteto-mode picked the right playbook and routed to `/pstack:how`,
   but did not open a todo list and cited a principle without reading its leaf. The rules are correctly
   ported and the machinery demonstrably works; the model shortcut them on a 22-line file. Re-test on real work.
-- **Only 3 of 34 skills have been executed.** `poteto-mode`, `how` and `principle-laziness-protocol` ran.
-  `arena`, `interrogate`, `why`, `reflect`, `architect`, `automate-me`, `setup-pstack` and the rest have
-  never been run, so the multi-agent fan-out, the `${CLAUDE_PLUGIN_DATA}` config round trip, and the MCP
-  discovery path are all unexercised.
-- **The `allowed-tools` grant for dynamic injection is untested in a real invocation.** The injected command
-  exits 0 either way, which is the part that would abort a skill invocation, but no consuming skill has run.
+- **6 of 34 skills have been executed**, plus the agent. `poteto-mode`, `how`, `interrogate`, `why`,
+  `setup-pstack` and `principle-laziness-protocol` ran, which between them exercise every mechanism this
+  port had to change: the config round trip, the multi-model fan-out, MCP discovery, playbook routing,
+  cross-skill routing, agent preload and principle invocation. Still never run: `arena`, `architect`,
+  `reflect`, `automate-me`, `figure-it-out`, `tdd`, `unslop`, `show-me-your-work`,
+  `typescript-best-practices`, and 19 of the 20 principle leaves. Their machinery is shared with what was
+  tested, but their own content is unexercised.
+- **`reflect` and `automate-me` transcript mining is still unrun.** The path rule they depend on is
+  confirmed, but neither skill has actually mined a transcript.
