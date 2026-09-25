@@ -1,9 +1,19 @@
 ---
 name: how
 description: "Use for \"how does X work\", code walkthroughs before changing something, and placement / ownership / layering questions (\"where should this live\", \"which package owns this\", \"is this the right layer\"). Explains subsystem architecture, runtime flow, onboarding mental models. Can critique architecture. Use why for motivation."
+argument-hint: [question about a subsystem]
+allowed-tools: Bash(cat ${CLAUDE_PLUGIN_DATA}/*) Bash(echo *)
 ---
 
 # How
+
+## Model configuration
+
+Your configured models, or `{}` when `/pstack:setup-pstack` has not run:
+
+!`cat ${CLAUDE_PLUGIN_DATA}/models.json 2>/dev/null || echo '{}'`
+
+Read `how-explorer`, `how-explainer`, `how-critics` from that object. A key that is absent falls back to the default named at the step that uses it. Values are Claude Code model aliases or IDs, passed as the `model` parameter when you spawn the subagent.
 
 Explore the codebase to answer "how does X work?" questions. Produce clear architectural explanations at the level of a senior engineer onboarding onto a subsystem. Enough to build a working mental model, not annotated source code.
 
@@ -44,11 +54,11 @@ The right decomposition depends on the question. Use your judgment. Narrow quest
 
 Spawn all explorers in a single message:
 
-- `subagent_type`: `generalPurpose`
-- `model`: your configured how-explorer model (default `composer-2.5-fast`)
-- `readonly`: `true`
+- `subagent_type`: `Explore` (read-only by construction, which is what the Cursor original got from `readonly: true`)
+- `model`: your configured `how-explorer` model (default `sonnet`)
+- `run_in_background`: `true`
 
-Each explorer gets the same base prompt from `references/explorer-prompt.md` plus a specific exploration angle naming its slice. Each explorer should:
+Each explorer gets the same base prompt from `${CLAUDE_SKILL_DIR}/references/explorer-prompt.md` plus a specific exploration angle naming its slice. Each explorer should:
 - Start broad: Glob for relevant directories, Grep for key types/interfaces/class names
 - Follow the thread: from an entry point, trace the call chain (callers, callees, data flow, type definitions)
 - Read the actual code, don't guess from file names
@@ -63,11 +73,11 @@ Then proceed to Step 3.
 
 Spawn a single Task subagent that explores and explains in one pass:
 
-- `subagent_type`: `generalPurpose`
-- `model`: your configured how-explainer model (default `claude-opus-4-8-thinking-xhigh`)
-- `readonly`: `true`
+- `subagent_type`: `Explore`
+- `model`: your configured `how-explainer` model (default `opus`)
+- `run_in_background`: `true`
 
-The agent does its own exploration (Glob, Grep, Read) and writes the explanation directly. Read `references/explainer-prompt.md` for the communication style and output format. Same structure, just no explorer findings as input.
+The agent does its own exploration (Glob, Grep, Read) and writes the explanation directly. Read `${CLAUDE_SKILL_DIR}/references/explainer-prompt.md` for the communication style and output format. Same structure, just no explorer findings as input.
 
 Proceed to Step 4.
 
@@ -75,11 +85,11 @@ Proceed to Step 4.
 
 Once all explorers return, spawn a single Task subagent to synthesize their findings into one coherent explanation:
 
-- `subagent_type`: `generalPurpose`
-- `model`: your configured how-explainer model (default `claude-opus-4-8-thinking-xhigh`)
-- `readonly`: `true`
+- `subagent_type`: `Explore`
+- `model`: your configured `how-explainer` model (default `opus`)
+- `run_in_background`: `true`
 
-The explainer gets all explorers' findings and writes the human-facing explanation (output format below). Read `references/explainer-prompt.md` for the full prompt template. The explainer reconciles overlapping findings, resolves contradictions, and weaves the slices into a unified picture.
+The explainer gets all explorers' findings and writes the human-facing explanation (output format below). Read `${CLAUDE_SKILL_DIR}/references/explainer-prompt.md` for the full prompt template. The explainer reconciles overlapping findings, resolves contradictions, and weaves the slices into a unified picture.
 
 ### Step 4. Present
 
@@ -109,17 +119,17 @@ Run the full explain flow above (Steps 1-4). You must understand the architectur
 
 ### Step 2. Spawn Critics
 
-After the explanation is complete, spawn one architectural critic per model in your configured how-critics list (defaults `claude-opus-4-8-thinking-xhigh`, `gpt-5.5-high-fast`, `composer-2.5-fast`), all in a single message.
+After the explanation is complete, spawn one architectural critic per entry in your configured `how-critics` list (defaults `opus`, `sonnet`, `haiku`), all in a single message. Because every critic is a Claude model, give each a distinct lens as well: boundaries and layering, state and lifecycle, failure modes. Cross-critic agreement is a softer signal than it was in Cursor, where the critics came from different vendors.
 
 For each critic:
-- `subagent_type`: `generalPurpose`
-- `model`: one model from the configured how-critics list. These are minimum reasoning levels. The lead should escalate any model when the architecture warrants deeper analysis.
-- `readonly`: `true`
+- `subagent_type`: `Explore`
+- `model`: one entry from the configured `how-critics` list. These are minimum tiers. The lead should escalate any critic when the architecture warrants deeper analysis.
+- `run_in_background`: `true`
 
-Read `references/critic-prompt.md` for the prompt template. Each critic gets:
+Read `${CLAUDE_SKILL_DIR}/references/critic-prompt.md` for the prompt template. Each critic gets:
 1. The explanation from Step 1 (so they don't re-explore)
 2. The relevant file paths (so they can read the actual code)
-3. The architectural critique rubric from `references/critique-rubric.md`
+3. The architectural critique rubric from `${CLAUDE_SKILL_DIR}/references/critique-rubric.md`
 
 ### Step 3. Lead Judgment
 

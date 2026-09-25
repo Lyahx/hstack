@@ -1,9 +1,19 @@
 ---
 name: why
-description: "Use for 'why does X work this way', 'why we picked Y', design rationale, regressions, postmortems, or data-backed thresholds. Discovers available MCPs and queries each evidence category (source control, issue tracker, long-form docs, real-time chat, infrastructure observability, error tracking, product analytics warehouse) in parallel, then returns a cited read on decisions and tradeoffs. Use how for runtime behavior."
+description: "Use for 'why does X work this way', 'why we picked Y', design rationale, regressions, postmortems, or data-backed thresholds. Discovers available MCP servers and queries each evidence category (source control, issue tracker, long-form docs, real-time chat, infrastructure observability, error tracking, product analytics warehouse) in parallel, then returns a cited read on decisions and tradeoffs. Use how for runtime behavior."
+argument-hint: [what you want the rationale for]
+allowed-tools: Bash(cat ${CLAUDE_PLUGIN_DATA}/*) Bash(echo *)
 ---
 
 # Why
+
+## Model configuration
+
+Your configured models, or `{}` when `/pstack:setup-pstack` has not run:
+
+!`cat ${CLAUDE_PLUGIN_DATA}/models.json 2>/dev/null || echo '{}'`
+
+Read `why-investigators`, `why-synthesizer` from that object. A key that is absent falls back to the default named at the step that uses it. Values are Claude Code model aliases or IDs, passed as the `model` parameter when you spawn the subagent.
 
 Investigate the motivation and intent behind code. Why was it built this way? What edge cases were considered? What product, business, or operational constraints shaped the design? What alternatives were rejected, and why?
 
@@ -43,7 +53,7 @@ Principles:
 - **Multiple hypotheses are valid.** When the evidence fits several stories, present them all with the evidence for each. Let the user triangulate.
 - **Beware rationalization.** Code that makes sense today may have been written for reasons that no longer apply, or for no good reason at all. Don't retrofit intent.
 
-Read `references/epistemics.md` for the full confidence framework and phrasing guide. The synthesizer must follow it.
+Read `${CLAUDE_SKILL_DIR}/references/epistemics.md` for the full confidence framework and phrasing guide. The synthesizer must follow it.
 
 ## Step 1. Understand the Target and the Question
 
@@ -97,9 +107,17 @@ Capture this as seed context (file paths, symbols, commits, PR numbers, linked t
 
 ### Discovery
 
-Before spawning investigators, list the available MCPs from the Cursor environment. Use the available-tools map when present. Otherwise inspect the `mcps/` directory Cursor exposes for enabled MCP servers.
+Before spawning investigators, enumerate the MCP servers this session can actually reach. Three sources, in order of reliability:
 
-Map each available MCP to one evidence category:
+1. **Your own tool list.** An MCP tool is named `mcp__<server>__<tool>`, and one from a plugin-bundled server is named `mcp__plugin_<plugin>_<server>__<tool>`. The distinct server segments in the tool names you have are the servers you can use. This is the dependable source, because it reflects what you can call rather than what is configured.
+2. `claude mcp list` for configured servers and their connection status, when the `claude` CLI is on `PATH`.
+3. The user, if neither resolves anything.
+
+A server that is configured but unauthenticated is not usable. If a tool call fails on authentication, treat that category as unavailable and record it as a gap, naming the server so the user can authorize it with `/mcp`.
+
+Assume nothing is installed. Most sessions will have servers for only some categories, or none. That is an expected shape for this skill, not a failure: the coverage map with six documented nulls is still a real answer, and the source control investigator always runs.
+
+Map each available MCP server to one evidence category:
 
 1. Source control history
 2. Issue / ticket tracker
@@ -113,17 +131,19 @@ Source control is always available through git and `gh`. For the other six, clas
 
 Aim for a complete **coverage map**, not a minimal one. A null result from an issue tracker is evidence the decision was not ticketed, a useful fact in itself. Document the null, don't skip the search.
 
-Launch all matching investigators in a single message so they run concurrently. One investigator per category lets each specialize in one tool's query vocabulary and result shape. Don't ask one agent to cover multiple MCPs.
+Launch all matching investigators in a single message so they run concurrently. One investigator per category lets each specialize in one tool's query vocabulary and result shape. Don't ask one agent to cover multiple MCP servers.
 
 Subagent config (each):
-- `subagent_type`: `generalPurpose`
-- `model`: your configured why-investigators model (default `composer-2.5-fast`)
-- `readonly`: `false` (agent mode). **Do not use readonly/Ask mode.** It strips MCP access, which disables MCP-backed investigators entirely. The source control investigator would be safe in readonly, but keep modes uniform. Investigators still shouldn't write anything. That's a posture, not a sandbox.
+- `subagent_type`: `general-purpose`. **Do not use `Explore` for the MCP-backed investigators.** Explore carries a reduced tool set aimed at reading the local repository, so an investigator that needs an MCP server has to be a general-purpose agent. The source control investigator would be fine under Explore, but keep the types uniform. Investigators still shouldn't write anything. That's a posture, not a sandbox.
+- `model`: your configured `why-investigators` model (default `sonnet`)
+- `run_in_background`: `true`
+
+Backgrounded subagents run with a narrower built-in tool set. If an investigator reports a tool it needs is missing, re-spawn that one in the foreground rather than letting it return a false null.
 
 Each investigator gets:
-1. The base prompt from `references/investigator-prompt.md`
-2. The category playbook `references/sources/<source>.md` for the selected MCP, adapted from the examples in `references/source-playbook.md`
-3. The cross-cutting `references/sources/incident-postmortem.md` **if the target code looks defensive** (null checks, retry logic, timeout handling, rate limiting, feature flags, egress guards, OOM handlers)
+1. The base prompt from `${CLAUDE_SKILL_DIR}/references/investigator-prompt.md`
+2. The category playbook `${CLAUDE_SKILL_DIR}/references/sources/<source>.md` for the selected MCP, adapted from the examples in `${CLAUDE_SKILL_DIR}/references/source-playbook.md`
+3. The cross-cutting `${CLAUDE_SKILL_DIR}/references/sources/incident-postmortem.md` **if the target code looks defensive** (null checks, retry logic, timeout handling, rate limiting, feature flags, egress guards, OOM handlers)
 4. The code anchor from Step 2 (file paths, symbols, commit hashes, PR numbers, ticket IDs)
 5. The user's original question
 
@@ -151,7 +171,7 @@ Each entry lists what the category physically contains and the kind of "why" it 
 
 Only skip with an **explicit, written justification** that goes in the final "Sources Consulted" section. Two valid reasons:
 
-- **No MCP is available for that category** in this environment. Flag this as a gap, not a choice. Example: "Real-time team chat skipped. No matching MCP available, so the conversational record was not searchable."
+- **No MCP server is available for that category** in this session, or the one that matches is unauthenticated. Flag this as a gap, not a choice. Example: "Real-time team chat skipped. No matching MCP available, so the conversational record was not searchable."
 - **The source is provably irrelevant**, not just "probably irrelevant." A high bar. Example: "Error / exception tracking skipped. Target is a build-time script with no runtime code path." Not "probably not in error tracking, it's a feature not an error."
 
 "It's pure feature code, error tracking won't have anything" is **not** sufficient, and neither is "I doubt long-form docs would have this." Run the search; let the null result speak. The cost of an investigator returning empty is one subagent. The cost of missing a design doc that actually exists is a wrong answer.
@@ -162,16 +182,15 @@ If your scope assessment suggests a single-commit trivial target where the PR de
 
 Spawn one synthesizer subagent:
 
-- `subagent_type`: `generalPurpose`
-- `model`: your configured why-synthesizer model (default `claude-opus-4-8-thinking-xhigh`)
-- `readonly`: `false` (agent mode). The synthesizer's quality check spot-verifies citations, which can require MCP access. Readonly/Ask mode strips MCPs and defeats that.
+- `subagent_type`: `general-purpose`. The synthesizer's quality check spot-verifies citations, which can require MCP access, so it cannot be an `Explore` agent either.
+- `model`: your configured `why-synthesizer` model (default `opus`)
 
 The synthesizer gets:
 1. The investigator findings, including any null results and any categories skipped with justification
 2. The code anchor from Step 2 (file paths, symbols, commit hashes, PR numbers, ticket IDs)
 3. The user's original question
-4. The epistemics framework from `references/epistemics.md`
-5. The synthesizer prompt template from `references/synthesizer-prompt.md`
+4. The epistemics framework from `${CLAUDE_SKILL_DIR}/references/epistemics.md`
+5. The synthesizer prompt template from `${CLAUDE_SKILL_DIR}/references/synthesizer-prompt.md`
 
 Its job is the final output: a confidence-weighted, evidence-cited narrative with clearly separated "what we know" and "what we're inferring" sections, plus honest acknowledgment of gaps and null-result sources.
 
@@ -222,8 +241,8 @@ After the Sources Consulted block, if the user's `why` question is a precursor t
 
 ## Reference Files
 
-- `references/epistemics.md`. Confidence tiers and phrasing guide. The synthesizer must follow it.
-- `references/investigator-prompt.md`. Base prompt template for investigator subagents.
-- `references/source-playbook.md`. Index pointing at the category playbooks below.
+- `${CLAUDE_SKILL_DIR}/references/epistemics.md`. Confidence tiers and phrasing guide. The synthesizer must follow it.
+- `${CLAUDE_SKILL_DIR}/references/investigator-prompt.md`. Base prompt template for investigator subagents.
+- `${CLAUDE_SKILL_DIR}/references/source-playbook.md`. Index pointing at the category playbooks below.
 - `references/sources/*.md`. One self-contained example playbook per category, plus cross-cutting `incident-postmortem.md`. Give an investigator the single file that matches its category and adapt it to the available MCP.
-- `references/synthesizer-prompt.md`. Prompt template for the synthesizer subagent, including the output format.
+- `${CLAUDE_SKILL_DIR}/references/synthesizer-prompt.md`. Prompt template for the synthesizer subagent, including the output format.

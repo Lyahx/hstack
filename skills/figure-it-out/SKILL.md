@@ -1,7 +1,7 @@
 ---
 name: figure-it-out
 description: "Design an auditable playbook when no narrower one fits: a large migration, an ambitious multi-part change, or work a human reviews after stepping away. Scales rigor to the task, runs a hypothesis loop, and logs decisions via show-me-your-work. Use for /figure-it-out, 'figure it out', a large migration, or when no narrower playbook applies."
-disable-model-invocation: true
+argument-hint: [the task]
 ---
 
 # Figure it out
@@ -12,7 +12,7 @@ Don't reinvent a playbook you already have. A focused single-unit task that matc
 
 ## Start
 
-Open a todolist whose first item is to read the Principles section of the **poteto-mode** skill. Then add the phases below as todos.
+Open a todolist whose first item is to read the Principles section of the **poteto-mode** skill (`/pstack:poteto-mode`, or `${CLAUDE_PLUGIN_ROOT}/skills/poteto-mode/SKILL.md`). Then add the phases below as todos.
 
 ## Phase A: Frame
 
@@ -46,7 +46,7 @@ Apply the **sequence-verifiable-units** principle skill, verifying each unit bef
 
 ## Phase D: Keep the audit trail
 
-Log the run via the **show-me-your-work** skill, one canonical TSV with a row per decision and per unit, evidence as links. figure-it-out's work is usually ambitious enough to commit the trail so the reviewer can read it in the PR; commit it when confidence has to be shown. Prefer evidence produced by committed scripts so a reviewer can re-run it. The trail plus the diff is what lets the human come back and trust the work.
+Log the run via the **show-me-your-work** skill, one canonical TSV with a row per decision and per unit, evidence as links. That skill is user-invoked only, so follow `${CLAUDE_PLUGIN_ROOT}/skills/show-me-your-work/SKILL.md` directly rather than waiting to be handed it. figure-it-out's work is usually ambitious enough to commit the trail so the reviewer can read it in the PR; commit it when confidence has to be shown. Prefer evidence produced by committed scripts so a reviewer can re-run it. The trail plus the diff is what lets the human come back and trust the work.
 
 ## Phase E: Verify and hand back
 

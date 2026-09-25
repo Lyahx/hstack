@@ -1,10 +1,22 @@
 ---
 name: arena
 description: "Spawn N parallel candidates at the same task, pick a base, graft the strongest parts of the losers into it. Use for /arena, 'arena this', 'throw it in the arena', or when one attempt at a non-trivial artifact would lock in the wrong shape."
+argument-hint: [task for the candidates]
 disable-model-invocation: true
+allowed-tools: Bash(cat ${CLAUDE_PLUGIN_DATA}/*) Bash(echo *)
 ---
 
 # Arena
+
+## Model configuration
+
+Your configured models, or `{}` when `/pstack:setup-pstack` has not run:
+
+!`cat ${CLAUDE_PLUGIN_DATA}/models.json 2>/dev/null || echo '{}'`
+
+Read `arena-runners` from that object. A key that is absent falls back to the default named at the step that uses it. Values are Claude Code model aliases or IDs, passed as the `model` parameter when you spawn the subagent.
+
+**This differs from the Cursor original.** There the default runners were three vendors' models, and the diversity of the candidates came from that. Claude Code reaches only Claude models, so this port differentiates runners by model tier and by an explicit design direction given to each, which is a weaker source of diversity. Expect candidates to converge more often than they did in Cursor, and read a convergence signal with that in mind (Phase E).
 
 Fan out N parallel attempts at the same task. Read every candidate end to end. Pick the strongest as the base. Graft the best ideas from the others into it. Verify the synthesized result.
 
@@ -25,12 +37,12 @@ The N candidates will receive the same prompt, so the prompt is the contract. Ge
 
 1. State the artifact each candidate is producing.
 2. Derive the rubric. State what success looks like for *this* task, then turn it into 3-6 concrete gradeable criteria. Concrete: `Adds a --dry-run flag that skips writes`. Vague: `code is correct`. The rubric is the picker's tool in Phase D; candidates only see the task.
-3. Pick the runners. Default runners are your configured arena list (defaults `claude-opus-4-8-thinking-xhigh`, `gpt-5.5-high-fast`, `composer-2.5-fast`). Spawn more when the arena covers multiple design directions. Same model N times when the work is generation-bound rather than judgment-sensitive.
-4. Assign output paths. Each candidate writes to its own location (a git worktree where possible, otherwise `/tmp/arena-<slug>/candidate-<n>/`). N candidates writing to the same path is shared mutable state and fails the the **separate-before-serializing-shared-state** principle skill test.
+3. Pick the runners. Default runners are your configured `arena-runners` list (defaults `opus`, `sonnet`, `haiku`). Because every runner is a Claude model, give each one a *named design direction* in its prompt as well, so the candidates differ by more than tier. Derive the directions from the task: the conservative shape, the shape that minimizes surface area, the shape that optimizes for the caller. Spawn more runners when the arena covers more directions. Same model N times is fine when the work is generation-bound rather than judgment-sensitive.
+4. Assign output paths. Each candidate writes to its own location (a git worktree where possible, otherwise `/tmp/arena-<slug>/candidate-<n>/`). N candidates writing to the same path is shared mutable state and fails the the **separate-before-serializing-shared-state** principle skill test. A subagent with `isolation: worktree` gets its own checkout of the repository, which is the cleanest separation available.
 
 ## Phase B: Fan out
 
-Spawn all N subagents in one message with `run_in_background: true`, each with the task, the path to the shared grounding, its own output path, and instructions to produce both the artifact and a short rationale.
+Spawn all N subagents in one message with `run_in_background: true`, each with `subagent_type: "pstack:poteto-agent"`, its `model` from the configured list, the task, its named design direction, the path to the shared grounding, its own output path, and instructions to produce both the artifact and a short rationale.
 
 The rationale is mandatory. Without it, the parent cannot tell whether a candidate's structure is principled or accidental, which makes Phase E grafting unreliable. Each rationale names the alternatives the candidate considered and what it rejected.
 
@@ -38,7 +50,7 @@ If a candidate fails to produce output, proceed with N-1 and note the dropout in
 
 ## Phase C: Cross-judge
 
-After all Phase B candidates complete, spawn one readonly judge subagent on a different model family from the parent's. It sees the rubric and the candidates by path label, scores each criterion, and recommends a base with rationale. It runs in parallel with the parent's reading in Phase D, not with the candidates themselves. Spawning while candidates are still writing means the judge sees partial or empty outputs and reports them as dropouts.
+After all Phase B candidates complete, spawn one read-only judge subagent (`subagent_type: "Explore"`) on a different model tier from the parent's, and from the runner whose candidate looks strongest. It sees the rubric and the candidates by path label, scores each criterion, and recommends a base with rationale. It runs in parallel with the parent's reading in Phase D, not with the candidates themselves. Spawning while candidates are still writing means the judge sees partial or empty outputs and reports them as dropouts.
 
 ## Phase D: Pick a base
 

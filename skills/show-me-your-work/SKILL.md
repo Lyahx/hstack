@@ -1,7 +1,9 @@
 ---
 name: show-me-your-work
 description: "Keep a reviewable decision trail for long-running or unattended work: a TSV log with one row per decision (what, why, evidence, result). Local by default; commit it when a reviewer needs the trail to trust the result. Use for /show-me-your-work, autonomous or multi-phase runs, or work a human reviews after stepping away."
+argument-hint: [optional log path]
 disable-model-invocation: true
+allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/log.sh *)
 ---
 
 # Show me your work
@@ -12,7 +14,7 @@ For work a human reviews after the fact, a decision trail lets them reconstruct 
 
 A single TSV file, one row per decision. TSV because GitHub renders it as a sortable table, `column -s$'\t' -t` and spreadsheets read it, and a row appends with one command. Cells stay single-line. Evidence is a pointer, not prose.
 
-Copy `references/decision-log-template.tsv` (the header row) to start a clean log. Columns:
+Copy `${CLAUDE_SKILL_DIR}/references/decision-log-template.tsv` (the header row) to start a clean log. Columns:
 
 - **ts.** ISO8601 timestamp. The timeline axis.
 - **phase.** The phase or workstream.
@@ -35,7 +37,7 @@ ts	phase	decision	why	evidence	result
 
 Write each entry the way you'd tell a teammate what you did. Plain words, concrete actions, no AI speak or abstract jargon (the **unslop** skill applies to log text too). A reviewer should understand each row without decoding it.
 
-Use the helper so rows stay well-formed: `scripts/log.sh <logfile> <phase> <decision> <why> <evidence> <result>`. It stamps `ts`, writes the header on first use, strips stray tabs/newlines, and prefixes any cell starting with `=`, `+`, `-`, or `@` with a single quote so a reviewer opening the log in a spreadsheet doesn't trigger formula execution. A bare `printf` appending a row works too, but mind those same bytes if cells come from generated or user-supplied text.
+Use the helper so rows stay well-formed: `${CLAUDE_SKILL_DIR}/scripts/log.sh <logfile> <phase> <decision> <why> <evidence> <result>`. The skill pre-approves that exact path in `allowed-tools`, so it runs without a permission prompt. It stamps `ts`, writes the header on first use, strips stray tabs/newlines, and prefixes any cell starting with `=`, `+`, `-`, or `@` with a single quote so a reviewer opening the log in a spreadsheet doesn't trigger formula execution. A bare `printf` appending a row works too, but mind those same bytes if cells come from generated or user-supplied text.
 
 Log decision points and checkpoints, not every action: a fork chosen, a unit completed with its verification result, a pivot or revert with its trigger, a blocker surfaced, a gate fixed. For loop runs, one row per iteration. Skip the trivial and self-evident.
 
@@ -53,7 +55,7 @@ Commit it only when the work is ambitious enough that a reviewer needs the trail
 
 ## Audit the log against the transcript
 
-At the end of the run, before handing back, check the log told the truth. Read this run's transcript under the active workspace's `agent-transcripts/` directory (the system prompt names the path). Don't glob across `~/.cursor/projects/*/`; that reads unrelated private chats. Walk the log against what actually happened:
+At the end of the run, before handing back, check the log told the truth. Read this run's transcript under this project's transcript directory, resolved as `${CLAUDE_PLUGIN_ROOT}/skills/reflect/SKILL.md` step 1 describes; this session's id is `${CLAUDE_SESSION_ID}`. Don't glob across `~/.claude/projects/*/`; that reads private transcripts from unrelated work. Walk the log against what actually happened:
 
 - Every row maps to a real action. Cut invented or aspirational entries.
 - Each row's evidence resolves and shows what the row claims.
@@ -64,7 +66,7 @@ Fix the log, not the story. If the work diverged from what a row claims, the row
 
 ## Cross-model review of the trail
 
-Before handing back, you must spawn a subagent on a different model family from the one that did the work. Self-review is not a substitute; the point is fresh eyes you cannot bring yourself. The subagent reads the audit trail and the run's transcript, then flags what the user should pay attention to. Not a redo of the work, a scan for what's suboptimal or risky.
+Before handing back, you must spawn a subagent on a different model tier from the one that did the work. Self-review is not a substitute; the point is fresh eyes you cannot bring yourself. In Cursor this reviewer came from a different vendor, which made it genuinely independent. Claude Code reaches only Claude models, so a different tier is the strongest available substitute and a weaker one. Say which model reviewed, and read agreement as softer signal than it was. The subagent reads the audit trail and the run's transcript, then flags what the user should pay attention to. Not a redo of the work, a scan for what's suboptimal or risky.
 
 - Decisions logged with weak or absent evidence.
 - Verification steps skipped or claimed without proof in the transcript.

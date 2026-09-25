@@ -1,6 +1,7 @@
 ---
 name: unslop
 description: Cut AI tells from any writing. Must always apply.
+argument-hint: [text or file to clean]
 ---
 
 # Unslop

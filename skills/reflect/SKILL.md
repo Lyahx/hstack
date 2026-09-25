@@ -1,10 +1,19 @@
 ---
 name: reflect
 description: Spawn three parallel review subagents over the active transcript, surface learnings, and route each to a concrete edit on an existing skill. Use when the user says reflect.
-disable-model-invocation: true
+argument-hint: [optional focus for the review]
+allowed-tools: Bash(cat ${CLAUDE_PLUGIN_DATA}/*) Bash(echo *)
 ---
 
 # Reflect
+
+## Model configuration
+
+Your configured models, or `{}` when `/pstack:setup-pstack` has not run:
+
+!`cat ${CLAUDE_PLUGIN_DATA}/models.json 2>/dev/null || echo '{}'`
+
+Read `reflect-tooling`, `reflect-judgment` from that object. A key that is absent falls back to the default named at the step that uses it. Values are Claude Code model aliases or IDs, passed as the `model` parameter when you spawn the subagent.
 
 Mine the current conversation for durable learnings, then route them into skill edits.
 
@@ -22,31 +31,37 @@ Skip when the conversation is trivial, off-topic, or already covered by an exist
 
 ### 1. Locate the active transcript
 
-The parent finds its own transcript file before fanning out. The system prompt names the active workspace's `agent-transcripts/` directory; use that path. Do not glob across `~/.cursor/projects/*/`. That crosses workspace boundaries and reads private chats from unrelated projects.
+The parent finds its own transcript file before fanning out. Claude Code writes transcripts to `~/.claude/projects/<project>/`, where `<project>` encodes the project's absolute path. Resolve the directory for **this** project only:
 
 ```bash
-ls -t <agent-transcripts>/*.jsonl <agent-transcripts>/*/*.jsonl <agent-transcripts>/*/subagents/*.jsonl 2>/dev/null | head -10
+# The project directory name is the absolute path with each non-alphanumeric run replaced by a dash.
+d="$HOME/.claude/projects/$(printf '%s' "${CLAUDE_PROJECT_DIR}" | sed 's/[^A-Za-z0-9]/-/g')"
+ls -t "$d"/*.jsonl "$d"/*/*.jsonl "$d"/*/subagents/*.jsonl 2>/dev/null | head -10
 ```
 
-Three transcript layouts: legacy flat (`<id>.jsonl`), current nested (`<id>/<id>.jsonl`), and subagent (`<parent>/subagents/<child>.jsonl`).
+`claude-directory` documents the `projects/<project>/<session>.jsonl` layout and the `<session>/subagents/` directory, but not the exact path-encoding rule, so treat the `sed` above as a best effort. If it resolves nothing, fall back to `ls -td "$HOME"/.claude/projects/*/ | head` and pick the directory whose name ends with this project's path segments. Do not glob across `~/.claude/projects/*/` for content. That crosses project boundaries and reads private transcripts from unrelated work.
+
+Your own session id is `${CLAUDE_SESSION_ID}`, which names this session's transcript directly.
+
+Three transcript layouts: flat (`<id>.jsonl`), nested (`<id>/<id>.jsonl`), and subagent (`<parent>/subagents/<child>.jsonl`).
 
 For each candidate, read the first JSONL line and check that `message.content[0].text` contains the conversation's opening user prompt. Take the matching path. If no path resolves, write a tight digest of the session and pass that instead.
 
 ### 2. Spawn three reviewers in parallel
 
-One message, three `Task` calls, `subagent_type: generalPurpose`, explicit `model:` on each, agent mode (`readonly: false`). Reviewers need MCP access for context lookups (tickets, chat threads, observability traces referenced in the transcript); readonly strips MCPs. The prompt forbids file writes; the parent applies edits.
+One message, three `Agent` calls, `subagent_type: general-purpose`, explicit `model` on each. Reviewers need MCP access for context lookups (tickets, chat threads, observability traces referenced in the transcript), so they cannot be `Explore` agents, whose reduced tool set is aimed at reading the local repository. The prompt forbids file writes; the parent applies edits.
 
 | Lens | `model` | Prompt template |
 |---|---|---|
-| Judgment | your configured reflect-judgment model (default `claude-opus-4-8-thinking-xhigh`) | `references/judgment-reviewer.md` |
-| Tooling | your configured reflect-tooling model (default `composer-2.5-fast`) | `references/tooling-reviewer.md` |
-| Divergent | your configured reflect-judgment model (default `claude-opus-4-8-thinking-xhigh`) | `references/divergent-reviewer.md` |
+| Judgment | your configured `reflect-judgment` model (default `opus`) | `${CLAUDE_SKILL_DIR}/references/judgment-reviewer.md` |
+| Tooling | your configured `reflect-tooling` model (default `sonnet`) | `${CLAUDE_SKILL_DIR}/references/tooling-reviewer.md` |
+| Divergent | your configured `reflect-judgment` model (default `opus`) | `${CLAUDE_SKILL_DIR}/references/divergent-reviewer.md` |
 
 Pass each template verbatim, substituting the transcript path or digest where marked. Reviewers return findings in the `Task` response body.
 
 ### 3. Synthesize
 
-One `Task` call, `subagent_type: generalPurpose`, using your configured reflect-judgment model (default `claude-opus-4-8-thinking-xhigh`), agent mode (`readonly: false`). The synthesizer's quality check includes spot-verifying citations, which can require MCP access; readonly strips MCPs. Use `references/synthesizer.md` verbatim, with each reviewer's full output inlined where marked. The synthesizer returns a structured Accepted / Rejected / Backlog list.
+One `Agent` call, `subagent_type: general-purpose`, using your configured `reflect-judgment` model (default `opus`). The synthesizer's quality check includes spot-verifying citations, which can require MCP access, so it cannot be an `Explore` agent either. Use `${CLAUDE_SKILL_DIR}/references/synthesizer.md` verbatim, with each reviewer's full output inlined where marked. The synthesizer returns a structured Accepted / Rejected / Backlog list.
 
 ### 4. Structural enforcement check
 
@@ -61,11 +76,11 @@ Backlog items file to whatever devex / backlog tracker your team uses automatica
 For each approved Accepted item, follow the Routing field exactly:
 
 - Trivial existing-skill edit (a one-line bullet, a tightened sentence, a stale fact corrected): parent does directly.
-- Substantive existing-skill edit (a new section, a new pattern table, more than ~10 lines): hand to Cursor's built-in `create-skill` skill and run its draft / test / iterate loop.
-- `tune description: <skill path>` (the skill exists but didn't trigger when it should have): hand to `create-skill` and run its description-optimization loop.
-- `new skill via create-skill: <kebab-name>`: hand creation to `create-skill`. Do not invent the shape ad hoc.
+- Substantive existing-skill edit (a new section, a new pattern table, more than ~10 lines): hand to the `skill-creator` skill and run its draft / test / iterate loop. It ships in the `skill-creator` plugin from `claude-plugins-official`, not in Claude Code. When it is not installed, make the edit directly and say the loop did not run.
+- `tune description: <skill path>` (the skill exists but didn't trigger when it should have): hand to `skill-creator` and run its description-optimization loop.
+- `new skill via skill-creator: <kebab-name>`: hand creation to `skill-creator`. Do not invent the shape ad hoc.
 
-If your environment ships a SKILL.md validator, run it on every touched skill before declaring done. Skip this step if it doesn't.
+Run `claude plugin validate` on every touched skill directory before declaring done. It reports `SKILL.md` frontmatter that does not parse. Skip this step only when the `claude` CLI is not on `PATH`, and say so.
 
 ### 6. Summarize for the user
 

@@ -1,12 +1,27 @@
 ---
 name: interrogate
-description: "Use for \"interrogate\", \"adversarial review\", \"multi-model review\", \"challenge this\", \"stress test this code\", \"find blind spots\", or \"tear this apart\". Multiple LLM reviewers challenge changes from independent angles."
-disable-model-invocation: true
+description: "Use for \"interrogate\", \"adversarial review\", \"multi-model review\", \"challenge this\", \"stress test this code\", \"find blind spots\", or \"tear this apart\". Parallel reviewers on different models challenge changes from independent angles, then a lead verdict sorts every finding."
+argument-hint: [diff, PR, or files to review]
+allowed-tools: Bash(cat ${CLAUDE_PLUGIN_DATA}/*) Bash(echo *)
 ---
 
 # Interrogate
 
-Spawn one reviewer per configured model to adversarially review code changes. Each model gets the same prompt and rubric. The adversarial signal comes from model diversity, not assigned personas. Models differ in blind spots, priors, and reasoning patterns. Agreement across models is high-confidence signal; lone-model findings are worth reading but lower confidence.
+## Model configuration
+
+Your configured models, or `{}` when `/pstack:setup-pstack` has not run:
+
+!`cat ${CLAUDE_PLUGIN_DATA}/models.json 2>/dev/null || echo '{}'`
+
+Read `interrogate-reviewers` from that object. A key that is absent falls back to the default named at the step that uses it. Values are Claude Code model aliases or IDs, passed as the `model` parameter when you spawn the subagent.
+
+Spawn parallel reviewers to adversarially review code changes. Each reviewer gets the same diff, intent, and rubric, and its own review lens.
+
+**This differs from the Cursor original.** There, every reviewer ran the same prompt and the adversarial signal came from using several vendors' models, whose blind spots and priors genuinely differ. Claude Code can only reach Claude models, so that source of independence is gone. This port replaces it with two weaker substitutes: different model tiers, and an explicitly assigned lens per reviewer. Treat cross-reviewer agreement as a softer signal than it was. Reviewers on the same model family share blind spots that no assigned lens removes, so a finding none of them raised is not thereby absent.
+
+Agreement across reviewers is the higher-confidence signal; lone-reviewer findings are worth reading but lower confidence.
+
+For a cheaper single-pass review, the bundled `/code-review` skill produces ranked correctness findings and can post them to a PR. Use interrogate when you want independent lenses and a lead verdict that sorts every finding into act on / consider / noted / dismissed.
 
 The deliverable is a synthesized verdict. Do NOT auto-apply changes.
 
@@ -33,22 +48,32 @@ Write one clear paragraph. Reviewers challenge whether the work achieves the int
 
 ## Step 3, Spawn Reviewers
 
-Launch one reviewer per model in your configured interrogate list (defaults `claude-opus-4-8-thinking-xhigh`, `gpt-5.5-high-fast`, `composer-2.5-fast`), all in a single message.
+Launch one reviewer per entry in your configured `interrogate-reviewers` list (defaults `opus`, `sonnet`, `haiku`), all in a single message so they run concurrently.
+
+Assign each reviewer one lens, pairing the heaviest lens with the strongest model. With the three defaults:
+
+| Lens | Model | Hunts for |
+|---|---|---|
+| Correctness | first entry (default `opus`) | Logic errors, broken invariants, wrong edge-case handling, races, anything that makes the code do the wrong thing |
+| Code quality | second entry (default `sonnet`) | The `references/code-quality-review.md` lens: structure, naming, layering, reader load, dead weight |
+| Edge cases and failure modes | third entry (default `haiku`) | Empty and boundary inputs, concurrency, partial failure, retries, resource exhaustion, what happens when a dependency is down |
+
+If the list has more entries than lenses, repeat the Correctness lens on the extra models. If it has fewer, drop from the bottom and say which lens went unrun in the Reviewers section of the output. A lens nobody ran is a gap the user should see, not a silent omission.
 
 For each reviewer:
-- `subagent_type`: `generalPurpose`
-- `model`: one model from the configured interrogate list
-- `readonly`: `true`
+- `subagent_type`: `Explore` when the reviewer only needs to read the repository, which is the normal case. It is read-only by construction, which is what the Cursor original got from `readonly: true`. Use `general-purpose` when the reviewer needs an MCP server for context the diff references.
+- `model`: its entry from the configured list.
+- `run_in_background`: `true`.
 
-If a configured model slug is rejected as unresolvable when you try to spawn the subagent, check the valid slugs in the Task tool's error message, pick the closest equivalent (prefer the highest-reasoning tier of the same family), spawn with the valid slug, and open a separate PR to update the configured defaults. Do not block the review on the slug issue.
+If a configured model value is rejected as unresolvable, read the valid values from the error, pick the closest equivalent (prefer the highest-reasoning tier of the same family), spawn with that, and tell the user their `/pstack:setup-pstack` config names a model this account cannot use. Do not block the review on it.
 
-Read `references/reviewer-prompt.md` and fill in the template with:
+Read `${CLAUDE_SKILL_DIR}/references/reviewer-prompt.md` and fill in the template with:
 1. The stated intent
 2. The diff or file contents
-3. The review rubric from `references/rubric.md`
-4. The code-quality lens from `references/code-quality-review.md`
+3. The review rubric from `${CLAUDE_SKILL_DIR}/references/rubric.md`
+4. Its assigned lens from the table above, and for the code-quality reviewer the full lens in `${CLAUDE_SKILL_DIR}/references/code-quality-review.md`
 
-The same filled template goes to all reviewers, so every model applies the code-quality lens.
+Every reviewer gets the same intent, diff and rubric. Only the lens differs.
 
 Each reviewer produces structured findings as described in the prompt template.
 
@@ -66,7 +91,7 @@ As results come back, build a unified picture:
 
 You are the lead reviewer, a pragmatic senior engineer, not a neutral aggregator.
 
-Read `references/lead-judgment.md` for the full framework. Reviewers only see a slice of the codebase. You have the full context (the goal, the constraints, the timeline, which tradeoffs were already considered). Use that context aggressively.
+Read `${CLAUDE_SKILL_DIR}/references/lead-judgment.md` for the full framework. Reviewers only see a slice of the codebase. You have the full context (the goal, the constraints, the timeline, which tradeoffs were already considered). Use that context aggressively.
 
 Categorize every finding using these buckets:
 
@@ -88,7 +113,7 @@ Present the verdict in this structure:
 > [The stated intent paragraph from Step 2]
 
 ### Reviewers
-List each reviewer on its own line like `- <model name>: [N findings]`
+List each reviewer on its own line like `- <lens> (<model>): [N findings]`, and name any lens that did not run.
 
 ### Act On
 [Findings that should be addressed. For each: description, which models raised it, why it matters.]

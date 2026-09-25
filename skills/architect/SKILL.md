@@ -1,10 +1,19 @@
 ---
 name: architect
 description: "Sketch types, signatures, and module structure before code, then stay in the loop while implementation fills in. Use for /architect, 'architect this', 'design this', or non-trivial work where jumping to code would lock in the wrong shape."
-disable-model-invocation: true
+argument-hint: [what to design]
+allowed-tools: Bash(cat ${CLAUDE_PLUGIN_DATA}/*) Bash(echo *)
 ---
 
 # Architect
+
+## Model configuration
+
+Your configured models, or `{}` when `/pstack:setup-pstack` has not run:
+
+!`cat ${CLAUDE_PLUGIN_DATA}/models.json 2>/dev/null || echo '{}'`
+
+Read `architect-runners` from that object. A key that is absent falls back to the default named at the step that uses it. Values are Claude Code model aliases or IDs, passed as the `model` parameter when you spawn the subagent.
 
 Design before implementing. Sketch types, function signatures, class shapes, and module boundaries with `not implemented` bodies and pseudocode. Synthesize across multiple model perspectives, then fill in code against the chosen sketch. If implementation proves the sketch wrong, throw it out and redesign.
 
@@ -28,9 +37,9 @@ Skip Phase A only when the work is genuinely greenfield with no surrounding syst
 
 ## Phase B: Sketch
 
-Run the **arena** skill with the design-sketch task and the Phase A grounding artifacts. Pass `references/runner-prompt.md` as each runner's prompt. Each candidate produces a design package shaped per `references/rationale-template.md`: the caller's usage written first, then the type sketch, function signatures, module map, and prose rationale derived from it.
+Run the **arena** skill with the design-sketch task and the Phase A grounding artifacts. Pass `${CLAUDE_SKILL_DIR}/references/runner-prompt.md` as each runner's prompt. Each candidate produces a design package shaped per `${CLAUDE_SKILL_DIR}/references/rationale-template.md`: the caller's usage written first, then the type sketch, function signatures, module map, and prose rationale derived from it.
 
-Use your configured architect runners (defaults `claude-opus-4-8-thinking-xhigh`, `gpt-5.5-high-fast`, `composer-2.5-fast`).
+Use your configured `architect-runners` list (defaults `opus`, `sonnet`, `haiku`). Every runner is a Claude model, so give each a named design direction as arena's Phase A prescribes; tier alone does not make the candidates diverge.
 
 This is the **exhaust-the-design-space** principle skill made concrete. Whole-shape alternatives, not point fixes inside one shape.
 
@@ -76,4 +85,4 @@ When you scrap:
 
 ## Outputs
 
-The caller's usage is written first and the type sketch derived from it. One file with new types and signatures for small changes; module map plus type definitions for larger work. The rationale ships alongside, shaped per `references/rationale-template.md`, including the usage sketch and the synthesis decision.
+The caller's usage is written first and the type sketch derived from it. One file with new types and signatures for small changes; module map plus type definitions for larger work. The rationale ships alongside, shaped per `${CLAUDE_SKILL_DIR}/references/rationale-template.md`, including the usage sketch and the synthesis decision.
