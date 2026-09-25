@@ -1,3 +1,6 @@
 node_modules/
 .DS_Store
 *.log
+
+# Written by `claude plugin marketplace add`, holds a machine-specific absolute path.
+.claude/settings.json

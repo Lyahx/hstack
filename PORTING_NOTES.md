@@ -192,13 +192,31 @@ No other skill gets `user-invocable: false`. Every one of the other 14 is someth
 
 ## Known limitations and unverified items
 
-- **`skills: [pstack:poteto-agent]` preload spelling.** The docs show `skills:` with bare skill names and do
-  not give a plugin-namespaced example. This port uses `pstack:poteto-mode`, matching how plugin skills are
-  identified everywhere else. If the preload silently does not happen, a warning appears in the debug log
-  (`claude --debug`) and the bare name `poteto-mode` is the alternative. **Verify this in the smoke test.**
-- **Project-path encoding for transcripts.** Undocumented. See behavior change 4.
-- **`claude plugin validate` was not run in the session that built this port.** The `claude` CLI is not
-  installed on this machine and there is no node/npm. `scripts/check-refs.py` covers frontmatter fields,
-  `${CLAUDE_*}` path resolution and cross-skill references, and passes with 0 errors, but it is not a
-  substitute for the real validator on the manifest schema.
-- **No skill was executed.** Nothing here has been run end to end.
+Resolved during the session by running them on Claude Code v2.1.274. VERIFICATION.md has the evidence.
+
+- **`skills: [pstack:poteto-mode]` preload spelling. RESOLVED, it works.** The docs give no
+  plugin-namespaced example, so this was the port's biggest unknown. A live run shows the subagent reciting
+  poteto-mode's rules with zero tool calls in its transcript.
+- **A `user-invocable: false` principle is model-invocable. CONFIRMED.** A transcript shows
+  `Skill pstack:principle-laziness-protocol` and the reply quoted the leaf's own prime directive. The
+  decision this port turns on is sound.
+- **Project-path encoding for transcripts. CONFIRMED** on v2.1.274: each non-alphanumeric run becomes a
+  dash. Still undocumented, so the skills keep their fallback and their caveat.
+- **`claude plugin validate`. RUN, passes** on the plugin, `skills/`, `agents/`, and on `plugin.json`
+  standalone, plain and with `--strict`.
+- **Install form corrected.** `claude plugin marketplace add .` is rejected. The source must be `./` or an
+  absolute path. The README said `.`; fixed.
+- **"Zero listing cost" for user-only skills was wrong.** `disable-model-invocation: true` drops the
+  description from the listing, not the name. Those four skills still cost ~80-120 tokens each.
+
+Still open:
+
+- **The smoke test is a partial pass.** poteto-mode picked the right playbook and routed to `/pstack:how`,
+  but did not open a todo list and cited a principle without reading its leaf. The rules are correctly
+  ported and the machinery demonstrably works; the model shortcut them on a 22-line file. Re-test on real work.
+- **Only 3 of 34 skills have been executed.** `poteto-mode`, `how` and `principle-laziness-protocol` ran.
+  `arena`, `interrogate`, `why`, `reflect`, `architect`, `automate-me`, `setup-pstack` and the rest have
+  never been run, so the multi-agent fan-out, the `${CLAUDE_PLUGIN_DATA}` config round trip, and the MCP
+  discovery path are all unexercised.
+- **The `allowed-tools` grant for dynamic injection is untested in a real invocation.** The injected command
+  exits 0 either way, which is the part that would abort a skill invocation, but no consuming skill has run.

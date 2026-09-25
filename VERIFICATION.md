@@ -29,6 +29,52 @@ Reproduce all of the static checks:
 python3 scripts/check-refs.py
 ```
 
+## Verified by running it
+
+The `claude` CLI was installed mid-session (v2.1.274), so the following were executed for real, not inferred.
+
+| Check | Result |
+|---|---|
+| `claude plugin validate .` / `skills/` / `agents/`, plain and `--strict` | **Validation passed**, exit 0, all six runs |
+| `plugin.json` validated as a plugin manifest, with `marketplace.json` moved aside | **Validation passed** |
+| `claude plugin marketplace add ./ --scope project` | Success. Note **bare `.` is rejected**; the source must be `./` or an absolute path |
+| `claude plugin install pstack@pstack-local` | Success |
+| `claude plugin details pstack` inventory | **Skills (34), Agents (1)**, hooks 0, MCP 0. Matches what the port ships |
+| Agent preload via `skills: [pstack:poteto-mode]` | **WORKS.** The subagent stated poteto-mode's long-dash rule and its Subagents default with **zero tool calls** in its transcript. The plugin-namespaced spelling resolves |
+| A `user-invocable: false` principle is model-invocable | **WORKS.** Transcript shows `Skill pstack:principle-laziness-protocol`, and the reply quoted the leaf's actual prime directive |
+| `subagent_type: "pstack:poteto-agent"` dispatches | **WORKS.** Transcript shows the `Agent` call resolving |
+| Transcript path-mangling rule (undocumented) | **CONFIRMED** on v2.1.274. Predicted `~/.claude/projects/` + path with each non-alphanumeric run replaced by `-`, and the directory existed |
+| `${CLAUDE_SKILL_DIR}` resolves at runtime | **WORKS.** Transcript shows a read of `skills/poteto-mode/playbooks/investigation.md` |
+
+### Smoke test: partial pass
+
+`/pstack:poteto-mode investigate how ratelimit.py works` against a 22-line file, read-only, tools limited to
+Read/Glob/Grep/TodoWrite/Skill.
+
+What worked:
+- Matched the task to the **Investigation** playbook and read
+  `${CLAUDE_SKILL_DIR}/playbooks/investigation.md`.
+- Routed cross-skill to `Skill pstack:how` and produced that skill's exact output shape (Overview, Key
+  Concepts, How It Works, Where Things Live, Gotchas).
+- Emitted the playbook's `throughput checkpoint:` line.
+- Made no code changes, as the Investigation playbook requires.
+- Named a principle and the decision it changed ("Guard the Context Window shaped the approach. The file is
+  22 lines, so I read it directly instead of delegating").
+
+What did not:
+- **No todo list.** `TodoWrite` was allowed and never called. poteto-mode requires one for every multi-step
+  task; a one-file read-only investigation is arguably not multi-step, but the required behavior did not fire.
+- **No principle leaf was read.** It cited Guard the Context Window without invoking
+  `pstack:principle-guard-the-context-window`. This is precisely the failure poteto-mode names: "a citation
+  with no decision behind it means you skipped its leaf skill." The mechanism works (verified separately
+  above); the model did not use it on a trivial task.
+- **Two long-dash characters in the reply**, which poteto-mode bans outright.
+
+None of these are port defects. The rules are present and correctly ported, and the routing machinery
+demonstrably works. They are skill-adherence gaps on a task small enough that the model shortcut the process.
+**Re-test on a non-trivial task before trusting the todo-list and principle-leaf behavior**, since a 22-line
+file is the weakest possible test of a rigor skill.
+
 ## Yours to run
 
 ### 1. Validate the manifest
@@ -44,7 +90,7 @@ Expect `Validation passed`. `--strict` turns warnings into failures.
 ### 2. Install
 
 ```
-/plugin marketplace add .
+/plugin marketplace add ./
 /plugin install pstack@pstack-local
 /reload-plugins
 ```
@@ -89,18 +135,29 @@ retest.
 /skill-doctor
 ```
 
-Measured statically in the porting session: **7,010 characters, roughly 1,752 tokens**, from the 30 skills
-whose descriptions enter the listing. The four user-only skills cost nothing there.
+**Measured with `claude plugin details pstack`: ~2,943 tokens always-on**, added to every session. Run it
+yourself for the per-component table:
 
-The 20 principles are **65% of that** (4,581 chars) for 20 entries Claude reads rather than you. If
-`/skill-doctor` or `/doctor` reports the listing as heavy, collapse those to name-only rather than trimming
-descriptions, which would strip the keywords Claude matches on. Plugin skills are not affected by
-`skillOverrides`, so raise the budget instead:
-
-```json
-{ "skillListingBudgetFraction": 0.02 }
+```bash
+claude plugin details pstack
 ```
 
-If you would rather cut, the honest order is: the 20 principles first (largest share, and poteto-mode's inline
-index already summarizes each one, so Claude can still route by reading the leaf file directly), then `why`
-(428 chars, the single largest description).
+My static estimate during the port was ~1,752 tokens, so the real cost is about 68% higher. The difference is
+per-entry overhead plus the four user-only skills, which still cost ~80-120 tokens each for their names even
+though `disable-model-invocation: true` keeps their descriptions out of the listing. "Zero listing cost" was
+wrong; it is zero *description* cost.
+
+The 20 principles are roughly **1,600 tokens, about 54%** of the always-on total. The most expensive
+on-invoke components are `why` (~7.9k), `poteto-mode` (~5.5k) and `automate-me` (~3k), but on-invoke cost is
+paid only when the skill actually fires.
+
+If the always-on cost is too much, cut in this order:
+
+1. **The 20 principles**, the largest share. poteto-mode's inline index already summarizes each one, so
+   Claude can still route by reading `${CLAUDE_PLUGIN_ROOT}/skills/<name>/SKILL.md` directly. Setting
+   `disable-model-invocation: true` on them drops their descriptions from the listing, though not their
+   names. Cost: the verified leaf-invocation behavior below stops working.
+2. **`why`**, the single largest description at ~150 tokens always-on.
+
+`skillOverrides` does not apply to plugin skills, so `name-only` is not available here. Edit the frontmatter,
+or raise the budget with `skillListingBudgetFraction`.

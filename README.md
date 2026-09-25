@@ -21,7 +21,7 @@ git clone <this-repo> pstack && cd pstack
 Then, in Claude Code:
 
 ```
-/plugin marketplace add .
+/plugin marketplace add ./
 /plugin install pstack@pstack-local
 /reload-plugins
 ```
