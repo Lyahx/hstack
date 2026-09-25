@@ -15,7 +15,7 @@ in Cursor, because one change is significant.
 ## Install
 
 ```bash
-git clone <this-repo> pstack && cd pstack
+git clone https://github.com/Lyahx/hstack.git pstack && cd pstack
 ```
 
 Then, in Claude Code:
