@@ -1,0 +1,17 @@
+{
+	"name": "pstack-local",
+	"owner": {
+		"name": "Lauren Tan",
+		"url": "https://github.com/poteto"
+	},
+	"description": "Local marketplace for the Claude Code port of pstack.",
+	"plugins": [
+		{
+			"name": "pstack",
+			"source": "./",
+			"description": "Rigorous agent workflows: one entry point that routes a task to a playbook, plus principle skills, adversarial review, and a decision trail.",
+			"category": "developer-tools",
+			"tags": ["workflow", "principles", "review", "planning"]
+		}
+	]
+}
